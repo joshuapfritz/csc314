@@ -67,6 +67,11 @@ segment .text
 	global  raw_mode_off
 	global  init_board
 	global  render
+	; Add new subroutines for mystery squares and their functions.
+	global	is_mystery_square
+    global	teleport
+    global	bomb
+    global	clear_tile_if_in_bounds
 
 	extern	system
 	extern	putchar
@@ -241,67 +246,7 @@ init_board:
 	jmp		read_loop
 	read_loop_end:
 
-; ###################################################################
-; Add random MYSTERY_CHAR blocks based on 1% of the gameboard area
-add_random_blocks:
-	; Calculate NUM_MYSTERY_BLOCKS = (WIDTH * HEIGHT) / 100
-	mov		eax, WIDTH
-	mov		ecx, HEIGHT
-	mul		ecx                  ; eax = WIDTH * HEIGHT
-	xor		edx, edx
-	mov		ecx, 100
-	div		ecx                     ; eax = (WIDTH * HEIGHT) / 100
-	mov		ebx, eax                ; ebx = NUM_MYSTERY_BLOCKS
-
-random_block_loop:
-	cmp		ebx, 0
-	je		random_blocks_done      ; Exit if all blocks are added
-
-	; Generate deterministic positions
-	; Use (block index * prime) % area for pseudo-random distribution
-	mov		eax, ebx                ; eax = block index
-	mov		ecx, 31				    ; must be a prime number for proper calculation
-	mul		ecx                     ; eax = block index * PRIME_NUMBER
-	xor		edx, edx
-	mov		ecx, WIDTH
-	mov		esi, HEIGHT
-	mul		esi                  ; ecx = WIDTH * HEIGHT
-	div		ecx                     ; edx = (block index * PRIME_NUMBER) % area
-
-	; Calculate row and column from edx
-	mov		eax, edx                ; eax = offset in 1D array
-	xor		edx, edx
-	mov		ecx, WIDTH
-	div		ecx                     ; edx = row, eax = column
-	mov		edi, edx                ; Save row in edi
-	mov		esi, eax                ; Save column in esi
-
-	; Calculate offset in the board array
-	mov		eax, WIDTH
-	mul		edi                     ; eax = row * WIDTH
-	add		eax, esi                ; eax = row * WIDTH + column
-	mov		ebx, eax   
-
-    ; Check if the cell is empty
-    mov     al, BYTE [board + ebx]  ; Load current board cell
-    cmp     al, ' '                 ; Check if the cell is empty
-    jne     skip_placement          ; Skip if it's not empty
-
-    ; Place MYSTERY_CHAR
-    mov     BYTE [board + ebx], MYSTERY_CHAR
-
-skip_placement:
-	; Decrement block counter
-	dec		ebx
-	jmp		random_block_loop
-
-random_blocks_done:
-; End MYSTERY BLOCK Generation
-; calculate board_end for bombs.
-    lea     eax, [board + (HEIGHT * WIDTH)] ; Calculate board_end
-    mov     DWORD [board_end], eax          ; Store board_end address
-
-;##########################################################################
+	jmp		add_random_blocks
 
 	; close the open file handle
 	push	DWORD [ebp - 4]
@@ -391,6 +336,69 @@ render:
 	mov		esp, ebp
 	pop		ebp
 	ret
+; ###################################################################
+; Add random MYSTERY_CHAR blocks based on 1% of the gameboard area
+add_random_blocks:
+	; Calculate NUM_MYSTERY_BLOCKS = (WIDTH * HEIGHT) / 100
+	mov		eax, WIDTH
+	mov		ecx, HEIGHT
+	mul		ecx                  ; eax = WIDTH * HEIGHT
+	xor		edx, edx
+	mov		ecx, 100
+	div		ecx                     ; eax = (WIDTH * HEIGHT) / 100
+	mov		ebx, eax                ; ebx = NUM_MYSTERY_BLOCKS
+
+	random_block_loop:
+		cmp		ebx, 0
+		je		random_blocks_done      ; Exit if all blocks are added
+
+		; Generate deterministic positions
+		; Use (block index * prime) % area for pseudo-random distribution
+		mov		eax, ebx                ; eax = block index
+		mov		ecx, 31				    ; must be a prime number for proper calculation
+		mul		ecx                     ; eax = block index * PRIME_NUMBER
+		xor		edx, edx
+		mov		ecx, WIDTH
+		mov		esi, HEIGHT
+		mul		esi                  ; ecx = WIDTH * HEIGHT
+		div		ecx                     ; edx = (block index * PRIME_NUMBER) % area
+
+		; Calculate row and column from edx
+		mov		eax, edx                ; eax = offset in 1D array
+		xor		edx, edx
+		mov		ecx, WIDTH
+		div		ecx                     ; edx = row, eax = column
+		mov		edi, edx                ; Save row in edi
+		mov		esi, eax                ; Save column in esi
+
+		; Calculate offset in the board array
+		mov		eax, WIDTH
+		mul		edi                     ; eax = row * WIDTH
+		add		eax, esi                ; eax = row * WIDTH + column
+		mov		ebx, eax   
+
+		; Check if the cell is empty
+		mov     al, BYTE [board + ebx]  ; Load current board cell
+		cmp     al, ' '                 ; Check if the cell is empty
+		jne     skip_placement          ; Skip if it's not empty
+
+		; Place MYSTERY_CHAR
+		mov     BYTE [board + ebx], MYSTERY_CHAR
+
+	skip_placement:
+		; Decrement block counter
+		dec		ebx
+		jmp		random_block_loop
+
+random_blocks_done:
+; End MYSTERY BLOCK Generation
+; calculate board_end for bombs.
+    lea     eax, [board + (HEIGHT * WIDTH)] ; Calculate board_end
+    mov     DWORD [board_end], eax          ; Store board_end address
+	ret			; Go back to init_board to close out file and return to the game.
+
+;##########################################################################
+
 ; ##### Handle Mystery square #####
 is_mystery_square:
 	; Generate a pseudo-random number based on xpos and ypos like in the board_init to place random.
@@ -416,6 +424,7 @@ is_mystery_square:
 	jl      teleport                 ; 0–49: Teleport
 	cmp     eax, 100
 	jl      bomb                     ; 50–74: Bomb
+	ret
 ; ####### END: Mystery square ########
 ; ## Adjust the values and add jumps 
 ; ## to add a bag of coins or add
@@ -466,7 +475,7 @@ teleport:
     ; If the new position is valid, update xpos and ypos
     mov     DWORD [xpos], esi        ; Update xpos (column)
     mov     DWORD [ypos], edi        ; Update ypos (row)
-    jmp     mystery_end
+    ret
 
 bomb:
     ; Bomb explodes in a + (2 up/down, 4 left/right) and clears the spaces,
@@ -517,9 +526,8 @@ clear_horizontal:
     loop clear_horizontal   ; Repeat for range
 
     ; Return to game loop
-    jmp mystery_end
+    jmp game_loop
 
-clear_tile_if_in_bounds:
     ; Check if position (eax, edi) is within board bounds
     ; (eax = xpos or ypos, edi = ypos or xpos)
     ; Replace with your board boundary checking logic
@@ -537,6 +545,3 @@ clear_tile_if_in_bounds:
 
 out_of_bounds:
     ret
-; ##### Mystery end is a safety just in case we need to include other things.
-mystery_end:
-    jmp game_loop
