@@ -52,6 +52,10 @@ segment .data
 	number db " 1    2 ", 0 ; Text for showing which numbers to write
 	options db " O or X ", 0 ; Shows what the options are
 	choice db "Enter which character you want to play: ", 0 ; Tells the player to choose which character they want to play
+	gold_coins db "You collected a gold coin!", 0  ; Tells the player when they have collected a gold coin
+	current_score db "Score: ", 0  ; Displays current score
+	current_coints db "Coins: ", 0 ; Displays current number of coins
+
 	X dd 0 ; This is part of the wall subprogram for deciding the X portion of the wall
 	Y dd 0 ; This is part of the wall subprogram for deciding the Y portion of the wall
 	P dd 2 ; This value decides which character is shown when playing
@@ -71,6 +75,11 @@ segment .bss
 	; these variables store the current player position
 	xpos	resd	1
 	ypos	resd	1
+	coin_xpos  resd 1 ; track the coins current x position
+	coin_ypos  resd 1 ; track the coins current y position
+
+	num_coins  resd 1  ; stores the number of coins the player has
+	score  resd 1  ; stores the player's current score
 
 segment .text
 
@@ -183,6 +192,13 @@ asm_main:
 		mul		DWORD [ypos]
 		add		eax, DWORD [xpos]
 		lea		eax, [board + eax]
+
+		cmp BYTE [eax], '$'   ; check if the current position has a coin character
+		jne m_check  // if not, check if it has a mystery character
+    	call update_score  // update the score 
+    	call update_coins  // update the number of coins
+
+    	mov BYTE [eax], BLANK_CHAR ; Clear the coin after collecting
 		; Position check logic
 		m_check:
 		cmp		BYTE [eax], MYSTERY_CHAR
@@ -330,6 +346,19 @@ render:
 	push	help_str
 	call	printf
 	add		esp, 4
+
+	mov eax, current_score  ; load eax with current score message
+	call print_string  ; display current score message
+	mov eax, [score]  ; load current score into eax
+	call print_int  ; display current score
+	call print_nl  ; print newline
+
+	mov eax, current_coins  ; load eax with current coins message
+	call print_string  ; display current coins message
+	mov eax, [num_coins]  ; load number of coins into eax
+	call print_int  ; print number of coins
+	call print_nl  ; print newline
+	call print_nl  ; print newline
 
 	; outside loop by height
 	; i.e. for(c=0; c<height; c++)
@@ -662,3 +691,65 @@ random_position_generator:
     mov     [R], edx            ; Store final random position in R
 	mov		edx, 0
     ret
+
+; generate 20 coins and call a coin generation loop
+generate_coins:
+	push ebp
+	mov ebp, esp
+
+	mov eax, 20  ; load number of coins to generate into eax
+	mov [num_coins], eax  ; store initial number of coins in num_coins variable
+
+	call coin_creation_loop  ; call loop to place coins in random positionss
+
+; start at x, y = 0 and go to x -1 and y - 1 and generate random coins in random positions
+coin_creation_loop:
+	push ebp
+	mov ebp, esp
+
+	mov ecx, 20  ; 20 will be the loop counter
+
+coin_loop_start:
+	cmp ecx, 0  ; compare ecx (stores number of coins) with 0
+	je coin_loop_end  ; if ecx = 0 end loop because all 20 coins have been placed
+
+	call random_position_generator  ; generate a random position for each coin
+
+	mov eax, [R]  ; load a random index into eax
+	mov bl, [board + eax]  ; load the value at that index
+
+	cmp bl, BLANK_CHAR  ; see if bl is a blank space
+	jne coin_loop_start  ; if it's not a blank space, keep looking for one 
+
+	mov byte [board + eax], '?'  ; place a coin and mark position with a question mark
+
+	dec ecx  ; decrement the loop counter
+
+coin_loop_end:
+	pop ebp
+	ret
+
+; add one to the score each time a coin is obtained
+update_score:
+	push ebp
+	mov ebp, esp
+
+	mov eax, [score]  ; load current score into eax
+	add eax, 15  ; add 15 points for each coin to score
+
+	mov [score], eax  ; update score
+
+	pop ebp
+	ret
+
+; add a coin to the total number of coins each time the coin's position is visited
+update_coins:
+	push ebp
+	mov ebp, esp
+
+	mov eax, [num_coins]  ; load current number of coins into eax
+	add eax, 1  ; increment number of coins
+	mov [num_coins], eax  ; update the number of coins variable
+
+	pop ebp
+	ret
