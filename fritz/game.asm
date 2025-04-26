@@ -5,10 +5,10 @@
 
 ; how to represent everything
 %define WALL_CHAR '#'
-%define PLAYER_CHAR 'O'
-%define MYSTERY_CHAR '?'
-%define EMPTY_CHAR ' '
-	; #### added MYSTERY_CHAR and EMPTY_CHAR for teleport/bomb
+%define PLAYER_ONE 'O' ; Variable for player one
+%define PLAYER_TWO 'X' ; Variable for player two
+%define MYSTERY_CHAR '?' ; Mystery block
+%define BLANK_CHAR ' '	; Blank space
 
 ; the size of the game screen in characters
 %define HEIGHT 20
@@ -48,8 +48,20 @@ segment .data
 							RIGHTCHAR,"=RIGHT / ", \
 							EXITCHAR,"=EXIT", \
 							13,10,10,0
+	
+	number db " 1    2 ", 0 ; Text for showing which numbers to write
+	options db " O or X ", 0 ; Shows what the options are
+	choice db "Enter which character you want to play: ", 0 ; Tells the player to choose which character they want to play
+	X dd 0 ; This is part of the wall subprogram for deciding the X portion of the wall
+	Y dd 0 ; This is part of the wall subprogram for deciding the Y portion of the wall
+	P dd 2 ; This value decides which character is shown when playing
 
-	board_end dd 0                  ; Placeholder for board_end address needed for checks in bomb
+	po dd 1 ; Used to check if the character want to play as O
+	px dd 2 ; Used to check if the character want to play as X
+
+	R dd 0 ; Random number storage
+	BAREA dd 0	; Board Area
+	SEED dd 0	; P-RNG seed value.
 
 segment .bss
 
@@ -67,11 +79,6 @@ segment .text
 	global  raw_mode_off
 	global  init_board
 	global  render
-	; Add new subroutines for mystery squares and their functions.
-	global	is_mystery_square
-    global	teleport
-    global	bomb
-    global	clear_tile_if_in_bounds
 
 	extern	system
 	extern	putchar
@@ -86,10 +93,33 @@ asm_main:
 	push	ebp
 	mov		ebp, esp
 
+	player_choice: ; Checks what character the player wants to be
+		mov eax, number ; Gets the text for number
+		call print_string
+		call print_nl
+		mov eax, options ; Gets the text for options
+		call print_string
+		call print_nl
+		mov eax, choice ; Gets the text for choice
+		call print_string
+		call read_int ; Gets the answer
+		mov [P], eax ; Changes P to answer
+	check: ; Checks to make sure it is correct
+		mov ecx, 1
+		cmp ecx, eax ; Checks if it equals one
+		je done ; Jumps ahead if so
+		mov ebx, 2
+		cmp ebx, eax ; Checks if it equals two
+		je done ; Jumps ahead if so
+		jmp player_choice ; Jumps back to the start if neither is true
+	done: ; Used to skip ahead
+
+
 	; put the terminal in raw mode so the game works nicely
 	call	raw_mode_on
 
-	; read the game board file into the global variable
+	; read the game board file into the global variable.
+	mov		DWORD [SEED], 31
 	call	init_board
 
 	; set the player at the proper start position
@@ -153,18 +183,19 @@ asm_main:
 		mul		DWORD [ypos]
 		add		eax, DWORD [xpos]
 		lea		eax, [board + eax]
+		; Position check logic
+		m_check:
+		cmp		BYTE [eax], MYSTERY_CHAR
+		jne		w_check
+			call	is_mystery_square
+		w_check:
 		cmp		BYTE [eax], WALL_CHAR
 		jne		valid_move
-; ##### compare to MYSTERY_CHAR #####
-		cmp		BYTE [eax], MYSTERY_CHAR
-		je		is_mystery_square
-
 			; opps, that was an invalid move, reset
 			mov		DWORD [xpos], esi
 			mov		DWORD [ypos], edi
 		valid_move:
-			jmp		game_loop
-
+		jmp		game_loop
 	game_loop_end:
 
 	; restore old terminal functionality
@@ -245,8 +276,32 @@ init_board:
 	inc		DWORD [ebp - 8]
 	jmp		read_loop
 	read_loop_end:
+		layout_one: ; Used to specify that this is the first layout
+			; Creates the first wall (| )
+			mov ecx, 5 ; start y value
+			mov edx, 10
+			mov [Y], edx ; end y + 1
+			mov edx, 10
+			mov [X], edx ; x value
+			call make_vertical
 
-	jmp		add_random_blocks
+			;  Creates the second wall ( |)
+			mov ecx, 5 ; start y value
+			mov edx, 10
+            mov [Y], edx ; end y + 1
+			mov edx, 25
+            mov [X], edx ; x value
+            call make_vertical
+
+			;  Creates the third wall ( _ )
+			mov ecx, 10 ; start x value
+			mov edx, 10
+			mov [Y], edx ; y value
+			mov edx, 26
+			mov [X], edx ; end x + 1
+			call make_horizontal
+
+	call add_mystery_blocks
 
 	; close the open file handle
 	push	DWORD [ebp - 4]
@@ -298,10 +353,21 @@ render:
 			cmp		eax, DWORD [ebp - 4]
 			jne		print_board
 				; if both were equal, print the player
-				push	PLAYER_CHAR
-				call	putchar
-				add		esp, 4
-				jmp		print_end
+				mov eax, [P] ; Checks P value
+				cmp eax, 1 ; Compares it to 1
+				je one_player ; If equal jump to one_player
+				cmp eax, 2 ; Compares it to 2
+				je two_player ; If equal jump to two_player
+				one_player: ; Pushes O as the image for the player
+					push	PLAYER_ONE
+					call	putchar
+					add	esp, 4
+					jmp	print_end
+				two_player: ; Pushes X as the image for the player
+					push	PLAYER_TWO
+					call	putchar
+					add	esp, 4
+					jmp	print_end
 			print_board:
 				; otherwise print whatever's in the buffer
 				mov		eax, DWORD [ebp - 4]
@@ -336,94 +402,128 @@ render:
 	mov		esp, ebp
 	pop		ebp
 	ret
-; ###################################################################
-; Add random MYSTERY_CHAR blocks based on 1% of the gameboard area
-add_random_blocks:
-	; Calculate NUM_MYSTERY_BLOCKS = (WIDTH * HEIGHT) / 100
-	mov		eax, WIDTH
-	mov		ecx, HEIGHT
-	mul		ecx                  ; eax = WIDTH * HEIGHT
-	xor		edx, edx
-	mov		ecx, 100
-	div		ecx                     ; eax = (WIDTH * HEIGHT) / 100
-	mov		ebx, eax                ; ebx = NUM_MYSTERY_BLOCKS
+	
+	; Subprogram for making a vertical wall
+	make_vertical:
+        	mov eax, ecx ; Starting point
+        	mov ebx, WIDTH
+        	mul ebx
+        	add eax, [X] ; How far the wall is
+        	mov BYTE [board + eax], WALL_CHAR
+        	inc ecx
+        	cmp ecx, [Y]     ; end y+1
+		jne make_vertical
+		ret
 
-	random_block_loop:
-		cmp		ebx, 0
-		je		random_blocks_done      ; Exit if all blocks are added
+	; Subprogram for making a horizontal wall
+	make_horizontal:
+		mov eax, [Y] ; Starting point
+		mov ebx, WIDTH
+		mul ebx
+		add eax, ecx ; How far the wall is
+		mov BYTE [board + eax], WALL_CHAR
+		inc ecx
+		cmp ecx, [X]	; end x+1
+		jne make_horizontal
+		ret
 
-		; Generate deterministic positions
-		; Use (block index * prime) % area for pseudo-random distribution
-		mov		eax, ebx                ; eax = block index
-		mov		ecx, 31				    ; must be a prime number for proper calculation
-		mul		ecx                     ; eax = block index * PRIME_NUMBER
-		xor		edx, edx
-		mov		ecx, WIDTH
-		mov		esi, HEIGHT
-		mul		esi                  ; ecx = WIDTH * HEIGHT
-		div		ecx                     ; edx = (block index * PRIME_NUMBER) % area
+	; ###################################################################
+	; Subroutine: add_random_blocks
+	; Description:
+	;   Add MYSTERY_CHAR blocks to the gameboard, avoiding WALL_CHAR cells.
+	;   NUM_MYSTERY_BLOCKS is calculated as (WIDTH * HEIGHT) / 100.
+	;   This calculation should equal 1% of the board area.
+	; Inputs:
+	;   Gameboard dimensions: WIDTH, HEIGHT.
+	;   Block index: EBX (changes during the loop).
+	; Outputs:
+	;   MYSTERY_CHAR blocks are placed in pseudo-random positions.
 
-		; Calculate row and column from edx
-		mov		eax, edx                ; eax = offset in 1D array
-		xor		edx, edx
-		mov		ecx, WIDTH
-		div		ecx                     ; edx = row, eax = column
-		mov		edi, edx                ; Save row in edi
-		mov		esi, eax                ; Save column in esi
+add_mystery_blocks:
+    ; Calculate 1% of the board area (WIDTH * HEIGHT) / 100
+    mov     eax, WIDTH
+    mov     ecx, HEIGHT
+    mul     ecx                 ; eax = WIDTH * HEIGHT
+	mov		[BAREA], eax
+    xor     edx, edx
+    mov     ecx, 100
+    div     ecx                 ; eax = (WIDTH * HEIGHT) / 100
+    mov     ebx, eax            ; ebx = NUM_MYSTERY_BLOCKS (count of mystery blocks to place)
 
-		; Calculate offset in the board array
-		mov		eax, WIDTH
-		mul		edi                     ; eax = row * WIDTH
-		add		eax, esi                ; eax = row * WIDTH + column
-		mov		ebx, eax   
+mystery_block_loop:
+    cmp     ebx, 0
+    je      mystery_blocks_done ; Exit if all blocks are placed
 
-		; Check if the cell is empty
-		mov     al, BYTE [board + ebx]  ; Load current board cell
-		cmp     al, ' '                 ; Check if the cell is empty
-		jne     skip_placement          ; Skip if it's not empty
+    ; Generate a random position
+    push    ebx                 ; Save EBX counter
+    call    random_position_generator
+    pop     ebx                 ; Restore EBX counter
 
-		; Place MYSTERY_CHAR
-		mov     BYTE [board + ebx], MYSTERY_CHAR
+    ; Call verification_check to ensure the spot is valid (not a wall or non-empty)
+    call    verification_check
 
-	skip_placement:
-		; Decrement block counter
-		dec		ebx
-		jmp		random_block_loop
+    mov     eax, [R]            ; Load the random position from R
+    ; Place MYSTERY_CHAR
+    mov     BYTE [board + eax], MYSTERY_CHAR
 
-random_blocks_done:
-; End MYSTERY BLOCK Generation
-; calculate board_end for bombs.
-    lea     eax, [board + (HEIGHT * WIDTH)] ; Calculate board_end
-    mov     DWORD [board_end], eax          ; Store board_end address
-	ret			; Go back to init_board to close out file and return to the game.
+    ; Decrement block counter only if a block is placed
+    dec     ebx
+
+skip_placement:
+    jmp     mystery_block_loop
+
+mystery_blocks_done:
+    ret
+
+verification_check:
+    ; Load the random position
+    mov     eax, [R]            ; Get the random position (already calculated)
+    mov     al, [board + eax]   ; Load the character at that position
+
+    cmp     al, WALL_CHAR       ; Is it a wall?
+	add		[SEED], eax
+    je      retry_random        ; If yes, retry the random position generation
+
+    cmp     al, BLANK_CHAR      ; Is it a blank space?
+	sub		[SEED], eax
+    jne     retry_random        ; If not, retry the random position generation
+
+    ; If it's valid (blank space), return
+    ret
+
+retry_random:
+    ; Recurse to generate a new random position
+    call    random_position_generator
+    ret
 
 ;##########################################################################
 
 ; ##### Handle Mystery square #####
 is_mystery_square:
+	call	render
 	; Generate a pseudo-random number based on xpos and ypos like in the board_init to place random.
 	mov     eax, DWORD [xpos]        ; Load xpos
 	mov     ebx, DWORD [ypos]        ; Load ypos
 	add     eax, ebx                 ; Combine positions to create a unique block index
-	mov     ecx, 31                  ; Use a prime number as a multiplier
-	mul     ecx                      ; eax = (xpos + ypos) * PRIME_NUMBER
+	mov     ecx, [SEED]              ; Use a seed as a multiplier
+	mul     ecx                      ; eax = (xpos + ypos) * SEED
 	xor     edx, edx
-	mov     ecx, WIDTH
-	mov		esi, HEIGHT
-	mul     esi                   ; ecx = WIDTH * HEIGHT
-	div     ecx                      ; edx = (block index * PRIME_NUMBER) % area
+	mov     ecx, [BAREA]
+	mul     ecx         	         ; ecx = WIDTH * HEIGHT
+	xor		edx, edx
+	div     ecx                      ; edx = (block index * SEED) % area
 	mov     eax, edx                 ; eax = random value in range 0–(WIDTH * HEIGHT - 1)
 
 	; Scale to desired range (0–99)
 	xor     edx, edx
 	mov     ecx, 100                 ; Target range is 0–99
-	div     ecx                      ; edx = eax % 100
+	div     ecx                      ; eax = eax % 100
 
 	; Check the result range
 	cmp     eax, 50
 	jl      teleport                 ; 0–49: Teleport
 	cmp     eax, 100
-	jl      bomb                     ; 50–74: Bomb
+	jl      bomb                     ; 50–100: Bomb
 	ret
 ; ####### END: Mystery square ########
 ; ## Adjust the values and add jumps 
@@ -433,49 +533,33 @@ is_mystery_square:
 ; ##### MYSTERY BLOCK ACTIONS ########
 ; ####################################
 teleport:
-    ; Generate a pseudo-random number based on xpos and ypos like in the board_init to place random.
-    mov     eax, DWORD [xpos]        ; Load xpos
-    mov     ebx, DWORD [ypos]        ; Load ypos
-    add     eax, ebx                 ; Combine positions to create a unique block index
-    mov     ecx, 31                  ; Use a prime number as a multiplier
-    mul     ecx                      ; eax = (xpos + ypos) * PRIME_NUMBER
-    xor     edx, edx
-    mov     ecx, WIDTH
-    mov		esi, HEIGHT
-    mul     esi                      ; ecx = WIDTH * HEIGHT
-    div     ecx                      ; edx = (block index * PRIME_NUMBER) % area
-    mov     eax, edx                 ; eax = random value in range 0–(WIDTH * HEIGHT - 1)
+    ; Generate a random position
+    sub     [SEED], eax               ; Modify SEED for randomness
+    call    random_position_generator
+    mov     eax, [R]                  ; Store the result from random_position_generator
 
-    ; Scale to desired range (0–WIDTH * HEIGHT - 1)
-    xor     edx, edx
-    mov     ecx, WIDTH
-    div     ecx                      ; edx = eax % WIDTH
-    mov     esi, edx                 ; esi = random column
+    ; Convert the random position (eax) back into x and y coordinates
+    mov     ebx, eax                  ; Use eax (random position) to index into the board
+    xor     edx, edx                  ; Clear edx for division (since we're using div)
 
-    ; Calculate the row
-    mov     eax, edx
-    div     esi
-    mov     edi, edx                 ; edi = random row
+    ; Calculate new xpos (x = pos % WIDTH)
+    mov     ecx, WIDTH              ; Load WIDTH
+    div     ecx                       ; edx = eax % WIDTH (xpos)
+    mov     DWORD [xpos], edx         ; Store the new xpos
 
-    ; Check if the new position is valid (not a wall or mystery square)
-    ; Calculate offset in the board array
-    mov     eax, edi                 ; eax = row
-    mov     ebx, WIDTH
-    mul     ebx                      ; eax = row * WIDTH
-    add     eax, esi                 ; eax = row * WIDTH + column
-    mov     ebx, eax
+    ; Calculate new ypos (y = pos / WIDTH)
+    mov     DWORD [ypos], eax         ; Store the new ypos
 
-    ; Check if the new position is a wall or a mystery square
-    mov     al, BYTE [board + ebx]   ; Load current board cell
-    cmp     al, WALL_CHAR            ; If it's a wall
-    je      teleport                 ; If it's a wall, try again
-    cmp     al, MYSTERY_CHAR         ; If it's a mystery square
-    je      teleport                 ; If it's a mystery square, try again
+    ; Now check the new position on the board
+    lea     eax, [board + ebx]        ; Get the address of the new position in the board array
+    cmp     BYTE [eax], WALL_CHAR     ; Check if it's a wall
+    je      teleport                  ; If it's a wall, try another teleport
 
-    ; If the new position is valid, update xpos and ypos
-    mov     DWORD [xpos], esi        ; Update xpos (column)
-    mov     DWORD [ypos], edi        ; Update ypos (row)
-    ret
+    ; If it's not a wall, update player position
+    mov     esi, DWORD [xpos]         ; Update xpos (column)
+    mov     edi, DWORD [ypos]         ; Update ypos (row)
+
+    jmp     game_loop                 ; Continue the game loop
 
 bomb:
     ; Bomb explodes in a + (2 up/down, 4 left/right) and clears the spaces,
@@ -536,12 +620,45 @@ clear_tile_if_in_bounds:
     ; Check if index is within bounds
     cmp eax, 0                  ; Index must be >= 0
     jl out_of_bounds             ; If less, exit
-    cmp eax, [board_end]        ; Compare index with board size
+    cmp eax, WALL_CHAR         ; Compare index with board size
     jge out_of_bounds            ; If >= board size, exit
 
     ; Clear tile at index by setting it to EMPTY_CHAR
-    mov al, [EMPTY_CHAR]         ; Load EMPTY_CHAR value
+    mov al, [BLANK_CHAR]         ; Load EMPTY_CHAR value
     mov [board + eax], al        ; Overwrite board tile with EMPTY_CHAR
 
 out_of_bounds:
+    ret
+
+	; ###################################################################
+	; Subroutine: random_position_generator
+	; Description:
+	;   Generate pseudo-random offset using block index and a prime number.
+	; Inputs:
+	;   EBX = block index (unique for each block)
+	; Outputs:
+	;   EDX = pseudo-random offset (1D index) within the gameboard area
+	; Registers used: EAX, EBX, ECX, ESI, EDX
+
+random_position_generator:
+    mov     eax, ebx            ; EAX = block_loop index (parameter)
+    mov     esi, [SEED]         ; seed value multiplier
+	add		[SEED], esi			; Update to new seed
+    mul     esi                 ; EAX = block index * 31
+    xor     edx, edx            ; Clear EDX
+    mov     ecx, WIDTH          ; ECX = WIDTH (number of columns)
+    mul     ecx                 ; EAX = block index * 31 * WIDTH
+    add     eax, edx            ; Add any leftover from previous mul
+    xor     edx, edx            ; Clear EDX again
+    div     ecx                 ; EDX = (block index * 31) % WIDTH
+
+    ; Now EAX contains a "random" value, scale it to [1, 800]
+    mov     ecx, [BAREA]        ; Max value for the game board area
+    xor     edx, edx            ; Clear EDX for division
+    div     ecx                 ; EAX = (random number) / 800 -> Quotient in EAX, Remainder in EDX
+    add     edx, 1              ; Add 1 to ensure it's in range [1, 800]
+
+    ; Store the result (random position) in R (or temporary storage)
+    mov     [R], edx            ; Store final random position in R
+	mov		edx, 0
     ret
