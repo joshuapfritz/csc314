@@ -8,7 +8,7 @@
 %define PLAYER_ONE 'O' ; Variable for player one
 %define PLAYER_TWO 'X' ; Variable for player two
 %define MYSTERY_CHAR '?' ; Mystery block
-%define BLANK_CHAR ' '	; Blank space
+%define BLANK_CHAR '.'	; Blank space
 
 ; the size of the game screen in characters
 %define HEIGHT 20
@@ -184,10 +184,13 @@ asm_main:
 		add		eax, DWORD [xpos]
 		lea		eax, [board + eax]
 		; Position check logic
+		push		eax		; save our location
 		m_check:
 		cmp		BYTE [eax], MYSTERY_CHAR
 		jne		w_check
+			mov		BYTE [eax], BLANK_CHAR
 			call	is_mystery_square
+		pop		eax		; restore location
 		w_check:
 		cmp		BYTE [eax], WALL_CHAR
 		jne		valid_move
@@ -500,8 +503,11 @@ retry_random:
 
 ; ##### Handle Mystery square #####
 is_mystery_square:
+    ; Handle Mystery Square (Replace '?' with BLANK_CHAR)
+    ; We already know the player's position is [xpos], [ypos], so we convert to the 1D board index
+
 	call	render
-	; Generate a pseudo-random number based on xpos and ypos like in the board_init to place random.
+	; Reload position and Generate a pseudo-random number based on xpos and ypos like in the board_init to place random.
 	mov     eax, DWORD [xpos]        ; Load xpos
 	mov     ebx, DWORD [ypos]        ; Load ypos
 	add     eax, ebx                 ; Combine positions to create a unique block index
@@ -516,15 +522,16 @@ is_mystery_square:
 
 	; Scale to desired range (0–99)
 	xor     edx, edx
-	mov     ecx, 100                 ; Target range is 0–99
+	mov     ecx, 10                 ; Target range is 0–99
 	div     ecx                      ; eax = eax % 100
 
 	; Check the result range
+	breakpoint:
 	cmp     eax, 50
 	jl      teleport                 ; 0–49: Teleport
 	cmp     eax, 100
 	jl      bomb                     ; 50–100: Bomb
-	ret
+	ret		; failsafe return
 ; ####### END: Mystery square ########
 ; ## Adjust the values and add jumps 
 ; ## to add a bag of coins or add
@@ -575,60 +582,71 @@ bomb:
     ;    if j within bounds:
     ;        clear_tile(j, ypos)
     ; Continue game
+bomb:
+    ; Bomb explodes in a + (2 up/down, 4 left/right) and clears the spaces
+    ; Player moves to bomb's position.
 
     mov     esi, DWORD [xpos]         ; Store xpos in esi
     mov     edi, DWORD [ypos]         ; Store ypos in edi
 
-    ; Clear vertically (2 blocks up and down)
-    mov     ecx, 2   	              ; up/down counter
-clear_vertical:
-    ; Clear tile at (xpos, ypos - ecx)
-    mov eax, edi            ; eax = ypos
-    sub eax, ecx            ; eax = ypos - ecx
-    call clear_tile_if_in_bounds  ; Check and clear if within bounds
+    ; Clear vertical area (2 up, 2 down) around ypos
+    ; Loop over the vertical range (ypos - 2) to (ypos + 2)
+    mov     ecx, edi                  ; Start from ypos (row)
+    sub     ecx, 2                    ; Set ECX to ypos - 2 (start of vertical loop)
+    mov     ebx, edi                  ; Store original ypos in ebx for comparison
+    add     ebx, 2                    ; Set ebx to ypos + 2 (end of vertical loop)
 
-    ; Clear tile at (xpos, ypos + ecx)
-    mov eax, edi            ; eax = ypos
-    add eax, ecx            ; eax = ypos + ecx
-    call clear_tile_if_in_bounds  ; Check and clear if within bounds
+bomb_y_loop:
+    cmp     ecx, ebx                  ; Check if we've reached ypos + 2
+    jg      bomb_x_loop               ; If we have, jump to the horizontal loop
 
-    loop clear_vertical      ; Repeat for range
+    ; Check if current row is within bounds (ypos - 2 to ypos + 2)
+    cmp     ecx, 0                    ; Check if row is above board (ypos - 2 < 0)
+    jl      skip_y_loop               ; If out of bounds, skip
+    cmp     ecx, HEIGHT              ; Check if row is below board (ypos + 2 >= HEIGHT)
+    jge     skip_y_loop               ; If out of bounds, skip
 
-    ; Clear horizontal area (4 squares left and right)
-    mov ecx, 4              ; Counter for left/right range
-clear_horizontal:
-    ; Clear tile at (xpos - ecx, ypos)
-    mov eax, esi            ; eax = xpos
-    sub eax, ecx            ; eax = xpos - ecx
-    call clear_tile_if_in_bounds  ; Check and clear if within bounds
+    ; Clear horizontal area (4 left, 4 right) around xpos
+    ; Loop over the horizontal range (xpos - 4) to (xpos + 4)
+    mov     eax, esi                  ; Start from xpos (column)
+    sub     eax, 4                    ; Set EAX to xpos - 4 (start of horizontal loop)
+    mov     edx, esi                  ; Store original xpos in edx for comparison
+    add     edx, 4                    ; Set edx to xpos + 4 (end of horizontal loop)
 
-    ; Clear tile at (xpos + ecx, ypos)
-    mov eax, esi            ; eax = xpos
-    add eax, ecx            ; eax = xpos + ecx
-    call clear_tile_if_in_bounds  ; Check and clear if within bounds
+bomb_x_loop:
+    cmp     eax, edx                  ; Check if we've reached xpos + 4
+    jg      skip_bomb_clear           ; If we have, skip clearing the tiles
 
-    loop clear_horizontal   ; Repeat for range
+    ; Check if current column is within bounds (xpos - 4 to xpos + 4)
+    cmp     eax, 0                    ; Check if column is left of the board (xpos - 4 < 0)
+    jl      skip_bomb_clear           ; If out of bounds, skip
+    cmp     eax, WIDTH                ; Check if column is right of the board (xpos + 4 >= WIDTH)
+    jge     skip_bomb_clear           ; If out of bounds, skip
 
-    ; Return to game loop
-    jmp game_loop
+    ; Calculate the address of board[ecx][eax] (break it into two steps)
+    ; Step 1: Compute the row offset (ecx * WIDTH)
+    mov     ebx, ecx                  ; Store ypos in ebx
+    imul    ebx, WIDTH              ; ebx = ypos * WIDTH
 
-    ; Check if position (eax, edi) is within board bounds
-    ; (eax = xpos or ypos, edi = ypos or xpos)
-    ; Replace with your board boundary checking logic
-    ; If valid:
-clear_tile_if_in_bounds:
-    ; Check if index is within bounds
-    cmp eax, 0                  ; Index must be >= 0
-    jl out_of_bounds             ; If less, exit
-    cmp eax, WALL_CHAR         ; Compare index with board size
-    jge out_of_bounds            ; If >= board size, exit
+    ; Step 2: Add xpos (eax) to get the final address
+    add     ebx, eax                  ; ebx = (ypos * WIDTH) + xpos
 
-    ; Clear tile at index by setting it to EMPTY_CHAR
-    mov al, [BLANK_CHAR]         ; Load EMPTY_CHAR value
-    mov [board + eax], al        ; Overwrite board tile with EMPTY_CHAR
+    ; Now ebx contains the correct offset into the board
+    lea     edi, [board + ebx]        ; Calculate the address of the tile
 
-out_of_bounds:
+    ; Clear the tile by setting it to BLANK_CHAR
+    mov     BYTE [edi], BLANK_CHAR
+
+    inc     eax                       ; Move to the next horizontal tile (increment xpos)
+    jmp     bomb_x_loop               ; Repeat for the next tile
+
+skip_bomb_clear:
+    inc     ecx                       ; Move to the next vertical tile (increment ypos)
+    jmp     bomb_y_loop               ; Repeat for the next row
+
+skip_y_loop:
     ret
+
 
 	; ###################################################################
 	; Subroutine: random_position_generator
