@@ -49,8 +49,8 @@ segment .data
 							EXITCHAR,"=EXIT", \
 							13,10,10,0
 	
-	number db " 1    2 ", 0 ; Text for showing which numbers to write
-	options db " O or X ", 0 ; Shows what the options are
+	one db "Player One: 0 = 1 ", 0 ; Shows which number player 1 is
+	two db "Player Two: X = 2", 0 ; Shows which number player 2 is
 	choice db "Enter which character you want to play: ", 0 ; Tells the player to choose which character they want to play
 	gold_coins db "You collected a gold coin!", 0  ; Tells the player when they have collected a gold coin
 	current_score db "Score: ", 0  ; Displays current score
@@ -106,10 +106,10 @@ asm_main:
 	mov		ebp, esp
 
 	player_choice: ; Checks what character the player wants to be
-		mov eax, number ; Gets the text for number
+		mov eax, one ; Gets the text for one
 		call print_string
 		call print_nl
-		mov eax, options ; Gets the text for options
+		mov eax, two ; Gets the text for two
 		call print_string
 		call print_nl
 		mov eax, choice ; Gets the text for choice
