@@ -8,7 +8,7 @@
 %define PLAYER_ONE 'O' ; Variable for player one
 %define PLAYER_TWO 'X' ; Variable for player two
 %define MYSTERY_CHAR '?' ; Mystery block
-%define BLANK_CHAR '.'	; Blank space
+%define BLANK_CHAR ' '	; Blank space
 
 ; the size of the game screen in characters
 %define HEIGHT 20
@@ -54,7 +54,7 @@ segment .data
 	choice db "Enter which character you want to play: ", 0 ; Tells the player to choose which character they want to play
 	gold_coins db "You collected a gold coin!", 0  ; Tells the player when they have collected a gold coin
 	current_score db "Score: ", 0  ; Displays current score
-	current_coints db "Coins: ", 0 ; Displays current number of coins
+	current_coins db "Coins: ", 0 ; Displays current number of coins
 
 	X dd 0 ; This is part of the wall subprogram for deciding the X portion of the wall
 	Y dd 0 ; This is part of the wall subprogram for deciding the Y portion of the wall
@@ -194,9 +194,9 @@ asm_main:
 		lea		eax, [board + eax]
 
 		cmp BYTE [eax], '$'   ; check if the current position has a coin character
-		jne m_check  // if not, check if it has a mystery character
-    	call update_score  // update the score 
-    	call update_coins  // update the number of coins
+		jne m_check  ; if not, check if it has a mystery character
+    	call update_score  ; update the score 
+    	call update_coins  ; update the number of coins
 
     	mov BYTE [eax], BLANK_CHAR ; Clear the coin after collecting
 		; Position check logic
@@ -556,10 +556,12 @@ is_mystery_square:
 
 	; Check the result range
 	breakpoint:
-	cmp     eax, 50
-	jl      teleport                 ; 0–49: Teleport
-	cmp     eax, 100
-	jl      bomb                     ; 50–100: Bomb
+	cmp     eax, 33					 
+	jl      teleport                 ; 0–32: Teleport
+	cmp     eax, 66
+	jl      bomb                     ; 33-65: Bomb
+	jmp     coin					 ; 66-99: Coin
+
 	ret		; failsafe return
 ; ####### END: Mystery square ########
 ; ## Adjust the values and add jumps 
@@ -675,6 +677,19 @@ skip_bomb_clear:
 
 skip_y_loop:
     ret
+
+coin:
+    mov eax, WIDTH
+    mul DWORD [ypos]
+    add eax, DWORD [xpos]
+
+    ; Place a coin
+    mov BYTE [board + eax], MYSTERY_CHAR  ; set a coin with the mystery character
+
+    call update_score  ; update player score
+    call update_coins  ; update player coins
+
+    jmp game_loop  ; continue game 
 
 
 	; ###################################################################
