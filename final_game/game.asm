@@ -55,6 +55,7 @@ segment .data
 	gold_coins db "You collected a gold coin!", 0  ; Tells the player when they have collected a gold coin
 	current_score db "Score: ", 0  ; Displays current score
 	current_coins db "Coins: ", 0 ; Displays current number of coins
+	game_over  db "GAME OVER", 0 ; game over message
 
 	X dd 0 ; This is part of the wall subprogram for deciding the X portion of the wall
 	Y dd 0 ; This is part of the wall subprogram for deciding the Y portion of the wall
@@ -71,6 +72,8 @@ segment .bss
 
 	; this array stores the current rendered gameboard (HxW)
 	board	resb	(HEIGHT * WIDTH)
+
+	NUM_MYSTERY_BLOCKS resd 1
 
 	; these variables store the current player position
 	xpos	resd	1
@@ -193,12 +196,6 @@ asm_main:
 		add		eax, DWORD [xpos]
 		lea		eax, [board + eax]
 
-		cmp BYTE [eax], '$'   ; check if the current position has a coin character
-		jne m_check  ; if not, check if it has a mystery character
-    	call update_score  ; update the score 
-    	call update_coins  ; update the number of coins
-
-    	mov BYTE [eax], BLANK_CHAR ; Clear the coin after collecting
 		; Position check logic
 		push		eax		; save our location
 		m_check:
@@ -336,6 +333,10 @@ render:
 	push	ebp
 	mov		ebp, esp
 
+	mov eax, [NUM_MYSTERY_BLOCKS]
+	cmp eax, 0
+	je end_game 
+
 	; two ints, for two loop counters
 	; ebp-4, ebp-8
 	sub		esp, 8
@@ -459,6 +460,7 @@ render:
 		jne make_horizontal
 		ret
 
+
 	; ###################################################################
 	; Subroutine: add_random_blocks
 	; Description:
@@ -475,12 +477,13 @@ add_mystery_blocks:
     ; Calculate 1% of the board area (WIDTH * HEIGHT) / 100
     mov     eax, WIDTH
     mov     ecx, HEIGHT
-    mul     ecx                 ; eax = WIDTH * HEIGHT
+    mul     ecx                  ; eax = WIDTH * HEIGHT
 	mov		[BAREA], eax
     xor     edx, edx
     mov     ecx, 100
-    div     ecx                 ; eax = (WIDTH * HEIGHT) / 100
-    mov     ebx, eax            ; ebx = NUM_MYSTERY_BLOCKS (count of mystery blocks to place)
+    div     ecx                  ; eax = (WIDTH * HEIGHT) / 100
+    mov     ebx, eax             ; ebx = NUM_MYSTERY_BLOCKS (count of mystery blocks to place)
+	mov [NUM_MYSTERY_BLOCKS], ebx  ; load value of ebx into NUM_MYSTERY_BLOCKS
 
 mystery_block_loop:
     cmp     ebx, 0
@@ -534,6 +537,10 @@ retry_random:
 is_mystery_square:
     ; Handle Mystery Square (Replace '?' with BLANK_CHAR)
     ; We already know the player's position is [xpos], [ypos], so we convert to the 1D board index
+
+	mov eax, [NUM_MYSTERY_BLOCKS]  ; load number of mystery blocks into eax
+	dec eax					       ; decrement eax (num of mystery blocks)
+	mov [NUM_MYSTERY_BLOCKS], eax  ; store updated value of eax back into mystery blocks variable
 
 	call	render
 	; Reload position and Generate a pseudo-random number based on xpos and ypos like in the board_init to place random.
@@ -683,8 +690,8 @@ coin:
     mul DWORD [ypos]
     add eax, DWORD [xpos]
 
-    ; Place a coin
-    mov BYTE [board + eax], MYSTERY_CHAR  ; set a coin with the mystery character
+    ; place a coin
+    mov BYTE [board + eax], BLANK_CHAR  ; set a coin with the mystery character
 
     call update_score  ; update player score
     call update_coins  ; update player coins
@@ -733,9 +740,9 @@ generate_coins:
 	mov eax, 20  ; load number of coins to generate into eax
 	mov [num_coins], eax  ; store initial number of coins in num_coins variable
 
-	call coin_creation_loop  ; call loop to place coins in random positionss
+	call coin_creation_loop  ; call loop to place coins in random positions
 
-; start at x, y = 0 and go to x -1 and y - 1 and generate random coins in random positions
+; generate coins in random positions
 coin_creation_loop:
 	push ebp
 	mov ebp, esp
@@ -785,4 +792,22 @@ update_coins:
 	mov [num_coins], eax  ; update the number of coins variable
 
 	pop ebp
+	ret
+
+; displays "GAME OVER" when the player has hit all mystery characters
+end_game:
+	end_game:
+	push ebp
+	mov ebp, esp
+
+	mov eax, game_over  ; load eax with game over message
+	call print_string   ; print game over message
+	call print_nl
+
+	call raw_mode_off    ; exit game
+
+	mov eax, 0
+	mov esp, ebp
+	pop ebp
+
 	ret
