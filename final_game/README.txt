@@ -13,3 +13,6 @@ Navigate the board and enter mystery squares to either teleport, cause an explos
 - Teleportation via mystery squares
 - Bombs via mystery squares
 - Coins via mystery squares
+
+## Directories
+Kaley:  /home/kaley.gann/Final/game
