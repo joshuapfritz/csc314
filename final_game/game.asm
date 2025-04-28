@@ -55,6 +55,7 @@ segment .data
 	gold_coins db "You collected a gold coin!", 0  ; Tells the player when they have collected a gold coin
 	current_score db "Score: ", 0  ; Displays current score
 	current_coins db "Coins: ", 0 ; Displays current number of coins
+	bomb_message db "Explosion! -5 points", 0 ; notifies player of explosion and subtraction of 5 points
 	game_over  db "GAME OVER", 0 ; game over message
 
 	X dd 0 ; This is part of the wall subprogram for deciding the X portion of the wall
@@ -100,6 +101,7 @@ segment .text
 	extern	fread
 	extern	fgetc
 	extern	fclose
+	extern exit  ; used to exit the program
 
 asm_main:
 	push	ebp
@@ -606,7 +608,7 @@ teleport:
 
     jmp     game_loop                 ; Continue the game loop
 
-bomb:
+; bomb:
     ; Bomb explodes in a + (2 up/down, 4 left/right) and clears the spaces,
 	; Player moves to bomb's position.
     ; Start from the current position (xpos, ypos)
@@ -623,6 +625,10 @@ bomb:
 bomb:
     ; Bomb explodes in a + (2 up/down, 4 left/right) and clears the spaces
     ; Player moves to bomb's position.
+
+	mov eax, [score]  ; load current score value into eax
+    sub eax, 5  ; subtract 5 when the bomb goes off
+    mov [score], eax  ; update score
 
     mov     esi, DWORD [xpos]         ; Store xpos in esi
     mov     edi, DWORD [ypos]         ; Store ypos in edi
@@ -803,11 +809,9 @@ end_game:
 	mov eax, game_over  ; load eax with game over message
 	call print_string   ; print game over message
 	call print_nl
+	call print_nl 
 
-	call raw_mode_off    ; exit game
+	call raw_mode_off   ; turn off raw mode
 
-	mov eax, 0
-	mov esp, ebp
-	pop ebp
-
-	ret
+	push 0
+	call exit  ; exit the program
