@@ -55,7 +55,6 @@ segment .data
 	gold_coins db "You collected a gold coin!", 0  ; Tells the player when they have collected a gold coin
 	current_score db "Score: ", 0  ; Displays current score
 	current_coins db "Coins: ", 0 ; Displays current number of coins
-	bomb_message db "Explosion! -5 points", 0 ; notifies player of explosion and subtraction of 5 points
 	game_over  db "GAME OVER", 0 ; game over message
 
 	X dd 0 ; This is part of the wall subprogram for deciding the X portion of the wall
@@ -335,10 +334,6 @@ render:
 	push	ebp
 	mov		ebp, esp
 
-	mov eax, [NUM_MYSTERY_BLOCKS]
-	cmp eax, 0
-	je end_game 
-
 	; two ints, for two loop counters
 	; ebp-4, ebp-8
 	sub		esp, 8
@@ -544,6 +539,9 @@ is_mystery_square:
 	dec eax					       ; decrement eax (num of mystery blocks)
 	mov [NUM_MYSTERY_BLOCKS], eax  ; store updated value of eax back into mystery blocks variable
 
+	cmp eax, 0  ; end the game if there are no mystery blocks left
+    je end_game
+
 	call	render
 	; Reload position and Generate a pseudo-random number based on xpos and ypos like in the board_init to place random.
 	mov     eax, DWORD [xpos]        ; Load xpos
@@ -608,23 +606,12 @@ teleport:
 
     jmp     game_loop                 ; Continue the game loop
 
-; bomb:
-    ; Bomb explodes in a + (2 up/down, 4 left/right) and clears the spaces,
-	; Player moves to bomb's position.
-    ; Start from the current position (xpos, ypos)
-	;bomb_logic --- pseudocode:
-    ; Clear vertical area (2 up, 2 down)
-    ;for i = ypos - 2 to ypos + 2:
-    ;    if i within bounds:
-    ;        clear_tile(xpos, i)
-    ; Clear horizontal area (4 left, 4 right)
-    ;for j = xpos - 4 to xpos + 4:
-    ;    if j within bounds:
-    ;        clear_tile(j, ypos)
-    ; Continue game
+
 bomb:
     ; Bomb explodes in a + (2 up/down, 4 left/right) and clears the spaces
     ; Player moves to bomb's position.
+	mov eax, bomb_message  ; load bomb message into eax
+	call print_string  ; display bomb message
 
 	mov eax, [score]  ; load current score value into eax
     sub eax, 5  ; subtract 5 when the bomb goes off
