@@ -716,43 +716,6 @@ random_position_generator:
 	mov		edx, 0
     ret
 
-; generate 20 coins and call a coin generation loop
-generate_coins:
-	push ebp
-	mov ebp, esp
-
-	mov eax, 20  ; load number of coins to generate into eax
-	mov [num_coins], eax  ; store initial number of coins in num_coins variable
-
-	call coin_creation_loop  ; call loop to place coins in random positions
-
-; generate coins in random positions
-coin_creation_loop:
-	push ebp
-	mov ebp, esp
-
-	mov ecx, 20  ; 20 will be the loop counter
-
-coin_loop_start:
-	cmp ecx, 0  ; compare ecx (stores number of coins) with 0
-	je coin_loop_end  ; if ecx = 0 end loop because all 20 coins have been placed
-
-	call random_position_generator  ; generate a random position for each coin
-
-	mov eax, [R]  ; load a random index into eax
-	mov bl, [board + eax]  ; load the value at that index
-
-	cmp bl, BLANK_CHAR  ; see if bl is a blank space
-	jne coin_loop_start  ; if it's not a blank space, keep looking for one 
-
-	mov byte [board + eax], '?'  ; place a coin and mark position with a question mark
-
-	dec ecx  ; decrement the loop counter
-
-coin_loop_end:
-	pop ebp
-	ret
-
 ; add one to the score each time a coin is obtained
 update_score:
 	push ebp
