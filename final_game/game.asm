@@ -674,8 +674,7 @@ coin:
     mul DWORD [ypos]
     add eax, DWORD [xpos]
 
-    ; place a coin
-    mov BYTE [board + eax], BLANK_CHAR  ; set a coin with the mystery character
+    mov BYTE [board + eax], BLANK_CHAR  ; reset space
 
     call update_score  ; update player score
     call update_coins  ; update player coins
