@@ -535,13 +535,6 @@ is_mystery_square:
     ; Handle Mystery Square (Replace '?' with BLANK_CHAR)
     ; We already know the player's position is [xpos], [ypos], so we convert to the 1D board index
 
-	mov eax, [NUM_MYSTERY_BLOCKS]  ; load number of mystery blocks into eax
-	dec eax					       ; decrement eax (num of mystery blocks)
-	mov [NUM_MYSTERY_BLOCKS], eax  ; store updated value of eax back into mystery blocks variable
-
-	cmp eax, 0  ; end the game if there are no mystery blocks left
-    je end_game
-
 	call	render
 	; Reload position and Generate a pseudo-random number based on xpos and ypos like in the board_init to place random.
 	mov     eax, DWORD [xpos]        ; Load xpos
@@ -610,8 +603,6 @@ teleport:
 bomb:
     ; Bomb explodes in a + (2 up/down, 4 left/right) and clears the spaces
     ; Player moves to bomb's position.
-	mov eax, bomb_message  ; load bomb message into eax
-	call print_string  ; display bomb message
 
 	mov eax, [score]  ; load current score value into eax
     sub eax, 5  ; subtract 5 when the bomb goes off
@@ -787,18 +778,3 @@ update_coins:
 	pop ebp
 	ret
 
-; displays "GAME OVER" when the player has hit all mystery characters
-end_game:
-	end_game:
-	push ebp
-	mov ebp, esp
-
-	mov eax, game_over  ; load eax with game over message
-	call print_string   ; print game over message
-	call print_nl
-	call print_nl 
-
-	call raw_mode_off   ; turn off raw mode
-
-	push 0
-	call exit  ; exit the program
