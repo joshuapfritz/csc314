@@ -601,10 +601,15 @@ teleport:
 
 ; ############### Begin bomb loop ##################
 bomb:
+	; subtract 5 from score when hitting a bomb
+    mov eax, [score]  ; load current score value into eax
+    sub eax, 5  ; subtract 5 when the bomb goes off
+    mov [score], eax  ; update score
+
     ; Bomb explodes in a + (2 up/down, 4 left/right) and clears the spaces,
-	; Player moves to bomb's position.
+    ; Player moves to bomb's position.
     ; Start from the current position (xpos, ypos)
-	;bomb_logic --- pseudocode:
+    ;bomb_logic --- pseudocode:
     ; Clear vertical area (2 up, 2 down)
     ;for i = ypos - 2 to ypos + 2:
     ;    if i within bounds:
