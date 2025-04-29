@@ -599,75 +599,77 @@ teleport:
 
     jmp     game_loop                 ; Continue the game loop
 
-
+; ############### Begin bomb loop ##################
 bomb:
-    ; Bomb explodes in a + (2 up/down, 4 left/right) and clears the spaces
-    ; Player moves to bomb's position.
-
-	mov eax, [score]  ; load current score value into eax
-    sub eax, 5  ; subtract 5 when the bomb goes off
-    mov [score], eax  ; update score
-
+    ; Bomb explodes in a + (2 up/down, 4 left/right) and clears the spaces,
+	; Player moves to bomb's position.
+    ; Start from the current position (xpos, ypos)
+	;bomb_logic --- pseudocode:
+    ; Clear vertical area (2 up, 2 down)
+    ;for i = ypos - 2 to ypos + 2:
+    ;    if i within bounds:
+    ;        clear_tile(xpos, i)
+    ; Clear horizontal area (4 left, 4 right)
+    ;for j = xpos - 4 to xpos + 4:
+    ;    if j within bounds:
+    ;        clear_tile(j, ypos)
+    ; Continue game
     mov     esi, DWORD [xpos]         ; Store xpos in esi
     mov     edi, DWORD [ypos]         ; Store ypos in edi
 
     ; Clear vertical area (2 up, 2 down) around ypos
-    ; Loop over the vertical range (ypos - 2) to (ypos + 2)
-    mov     ecx, edi                  ; Start from ypos (row)
-    sub     ecx, 2                    ; Set ECX to ypos - 2 (start of vertical loop)
-    mov     ebx, edi                  ; Store original ypos in ebx for comparison
-    add     ebx, 2                    ; Set ebx to ypos + 2 (end of vertical loop)
+    mov     ecx, edi                  ; ecx = ypos
+    sub     ecx, 2                    ; Start of vertical loop (ypos - 2)
+    mov     ebx, edi                  ; ebx = ypos
+    add     ebx, 2                    ; End of vertical loop (ypos + 2)
 
 bomb_y_loop:
-    cmp     ecx, ebx                  ; Check if we've reached ypos + 2
-    jg      bomb_x_loop               ; If we have, jump to the horizontal loop
+    cmp     ecx, ebx                  ; Have we reached the end?
+    jg      bomb_done                 ; If yes, we're done
 
-    ; Check if current row is within bounds (ypos - 2 to ypos + 2)
-    cmp     ecx, 0                    ; Check if row is above board (ypos - 2 < 0)
-    jl      skip_y_loop               ; If out of bounds, skip
-    cmp     ecx, HEIGHT              ; Check if row is below board (ypos + 2 >= HEIGHT)
-    jge     skip_y_loop               ; If out of bounds, skip
+    cmp     ecx, 0                    ; Row out of bounds (above)
+    jl      bomb_y_skip
+    cmp     ecx, HEIGHT               ; Row out of bounds (below)
+    jge     bomb_y_skip
 
-    ; Clear horizontal area (4 left, 4 right) around xpos
-    ; Loop over the horizontal range (xpos - 4) to (xpos + 4)
-    mov     eax, esi                  ; Start from xpos (column)
-    sub     eax, 4                    ; Set EAX to xpos - 4 (start of horizontal loop)
-    mov     edx, esi                  ; Store original xpos in edx for comparison
-    add     edx, 4                    ; Set edx to xpos + 4 (end of horizontal loop)
+    ; Horizontal clear: 4 left, 4 right from xpos
+    mov     eax, esi                  ; eax = xpos
+    sub     eax, 4                    ; Start of horizontal loop (xpos - 4)
+    mov     edx, esi                  ; edx = xpos
+    add     edx, 4                    ; End of horizontal loop (xpos + 4)
 
 bomb_x_loop:
-    cmp     eax, edx                  ; Check if we've reached xpos + 4
-    jg      skip_bomb_clear           ; If we have, skip clearing the tiles
+    cmp     eax, edx
+    jg      bomb_y_skip
 
-    ; Check if current column is within bounds (xpos - 4 to xpos + 4)
-    cmp     eax, 0                    ; Check if column is left of the board (xpos - 4 < 0)
-    jl      skip_bomb_clear           ; If out of bounds, skip
-    cmp     eax, WIDTH                ; Check if column is right of the board (xpos + 4 >= WIDTH)
-    jge     skip_bomb_clear           ; If out of bounds, skip
+    cmp     eax, 0
+    jl      bomb_x_skip
+    cmp     eax, WIDTH
+    jge     bomb_x_skip
 
-    ; Calculate the address of board[ecx][eax] (break it into two steps)
-    ; Step 1: Compute the row offset (ecx * WIDTH)
-    mov     ebx, ecx                  ; Store ypos in ebx
-    imul    ebx, WIDTH              ; ebx = ypos * WIDTH
+    ; Calculate board[ecx][eax] address: (ecx * WIDTH) + eax
+    mov     esi, ecx                  ; esi = current row
+    imul    esi, WIDTH                ; esi = row offset
+    add     esi, eax                  ; esi = full index into board
 
-    ; Step 2: Add xpos (eax) to get the final address
-    add     ebx, eax                  ; ebx = (ypos * WIDTH) + xpos
+    lea     edi, [board + esi]        ; edi = address of board[ecx][eax]
 
-    ; Now ebx contains the correct offset into the board
-    lea     edi, [board + ebx]        ; Calculate the address of the tile
+    cmp     BYTE [edi], WALL_CHAR     ; Don't overwrite walls
+    je      bomb_x_skip
 
-    ; Clear the tile by setting it to BLANK_CHAR
-    mov     BYTE [edi], BLANK_CHAR
+    mov     BYTE [edi], BLANK_CHAR    ; Clear the tile
 
-    inc     eax                       ; Move to the next horizontal tile (increment xpos)
-    jmp     bomb_x_loop               ; Repeat for the next tile
+bomb_x_skip:
+    inc     eax                       ; Move to next column
+    jmp     bomb_x_loop
 
-skip_bomb_clear:
-    inc     ecx                       ; Move to the next vertical tile (increment ypos)
-    jmp     bomb_y_loop               ; Repeat for the next row
+bomb_y_skip:
+    inc     ecx                       ; Move to next row
+    jmp     bomb_y_loop
 
-skip_y_loop:
+bomb_done:
     ret
+	; ############################ End bombs ############################
 
 coin:
     mov eax, WIDTH
